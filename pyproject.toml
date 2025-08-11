@@ -1,9 +1,9 @@
 [project]
-name = "yeogida-backend"
+name = "MoPT-backend"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Sihyun Kim",email = "k4sud0n@gmail.com"}
+    {name = "Donghan Kim",email = "k4sud0n@gmail.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.12"
