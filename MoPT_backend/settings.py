@@ -126,3 +126,23 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/4.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  # .env 로드
+
+# 소상공인 상가(상권)정보 API (sdsc2)
+PUBLIC_API_BASE = os.getenv("PUBLIC_API_BASE", "https://apis.data.go.kr/B553077/api/open/sdsc2")
+PUBLIC_API_KEY = os.getenv("PUBLIC_API_KEY")            # Encoding Key 그대로
+PUBLIC_API_TIMEOUT = float(os.getenv("PUBLIC_API_TIMEOUT", "6.0"))
+
+# 법정동코드(odcloud 등)
+LAWD_CODE_API_BASE = os.getenv("LAWD_CODE_API_BASE", "https://api.odcloud.kr/api/15077871/v1")
+LAWD_API_KEY = os.getenv("LAWD_API_KEY")                # Encoding Key 그대로
+LAWD_API_TIMEOUT = float(os.getenv("LAWD_API_TIMEOUT", "6.0"))
+
+# sdsc2 동코드 파라미터명(대부분 'key' 사용, 필요하면 'adm_cd' 등으로 교체)
+SDSC_PARAM_KEY_NAME = os.getenv("SDSC_PARAM_KEY_NAME", "key")

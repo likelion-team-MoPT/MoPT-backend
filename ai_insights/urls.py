@@ -1,7 +1,8 @@
-# ai_insights/urls.py
 from django.urls import path
-from .views import InsightListView
+from .views import InsightListView, InsightDetailView 
 
 urlpatterns = [
     path('', InsightListView.as_view(), name='insight-list'),
+    path('<str:id>', InsightDetailView.as_view(), name='insight-detail-by-path'),
+    path('detail', InsightDetailView.as_view(), name='insight-detail-by-query'),
 ]
