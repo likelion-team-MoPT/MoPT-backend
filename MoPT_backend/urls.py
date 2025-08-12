@@ -32,7 +32,6 @@ api.add_router("/reports", reports_router)
 api.add_router("/users", users_router)
 
 urlpatterns = [
-    path("", lambda r: redirect("/api/v1/docs", permanent=False)),  # 루트 해결
     path("admin/", admin.site.urls),
     path("api/v1/", api.urls),
 ]
