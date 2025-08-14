@@ -1,7 +1,7 @@
 from django.urls import path
-from . import views
+from .views import DashboardSummaryView
 
 urlpatterns = [
-    path('dashboard', views.dashboard, name='dashboard'),
-    path('dashboard/trends', views.dashboard_trends, name='dashboard-trends'),
+    # 홈 대시보드
+    path('dashboard', DashboardSummaryView.as_view(), name='dashboard'),
 ]
