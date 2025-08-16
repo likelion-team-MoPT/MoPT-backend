@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "campaigns",
     "reports",
     "users",
+    "rest_framework",
 ]
 
 MIDDLEWARE = [
