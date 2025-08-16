@@ -18,3 +18,4 @@ ENV/
 
 # Django
 db.sqlite3
+MoPT/
