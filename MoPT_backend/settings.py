@@ -10,26 +10,25 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
+load_dotenv(BASE_DIR / ".env")  # .env 로드 (한 번만)
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-z*xv3#1bm*_8sp+01)sbg^vv%y3ibwlpc-u=(7@on25*o3_28t"
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# 보안 키/디버그: main 쪽 정책 존중 → 환경변수 기반
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-secret")
+DEBUG = os.getenv("DEBUG", "0") == "1"
 
 ALLOWED_HOSTS = ["*"]
 
-
 # Application definition
-
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -42,14 +41,17 @@ INSTALLED_APPS = [
     "campaigns",
     "reports",
     "users",
+    # 둘 다 살림: HEAD에서 추가된 DRF, main에서 추가된 integrations
     "rest_framework",
+    "integrations",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    #'django.middleware.csrf.CsrfViewMiddleware',
+    # main 쪽 유지: CSRF 활성화 (HEAD에서는 주석이었음)
+    "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -75,10 +77,8 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "MoPT_backend.wsgi.application"
 
-
 # Database
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
-
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
@@ -86,10 +86,8 @@ DATABASES = {
     }
 }
 
-
 # Password validation
 # https://docs.djangoproject.com/en/4.0/ref/settings/#auth-password-validators
-
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
@@ -105,44 +103,30 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
 # Internationalization
 # https://docs.djangoproject.com/en/4.0/topics/i18n/
-
 LANGUAGE_CODE = "ko-kr"
-
 TIME_ZONE = "Asia/Seoul"
-
 USE_I18N = True
-
 USE_TZ = True
-
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.0/howto/static-files/
-
 STATIC_URL = "static/"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.0/ref/settings/#default-auto-field
-
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-
-import os
-
-from dotenv import load_dotenv
-
-load_dotenv()  # .env 로드
-
-# 소상공인 상가(상권)정보 API (sdsc2)
+# ----------------------------
+# 공공데이터/외부 API 설정 (HEAD에서 추가된 항목) - 모두 유지
+# ----------------------------
 PUBLIC_API_BASE = os.getenv(
     "PUBLIC_API_BASE", "https://apis.data.go.kr/B553077/api/open/sdsc2"
 )
 PUBLIC_API_KEY = os.getenv("PUBLIC_API_KEY")  # Encoding Key 그대로
 PUBLIC_API_TIMEOUT = float(os.getenv("PUBLIC_API_TIMEOUT", "6.0"))
 
-# 법정동코드(odcloud 등)
 LAWD_CODE_API_BASE = os.getenv(
     "LAWD_CODE_API_BASE", "https://api.odcloud.kr/api/15077871/v1"
 )
@@ -151,3 +135,18 @@ LAWD_API_TIMEOUT = float(os.getenv("LAWD_API_TIMEOUT", "6.0"))
 
 # sdsc2 동코드 파라미터명(대부분 'key' 사용, 필요하면 'adm_cd' 등으로 교체)
 SDSC_PARAM_KEY_NAME = os.getenv("SDSC_PARAM_KEY_NAME", "key")
+
+# ----------------------------
+# OAuth provider config (main에서 추가된 항목) - 그대로 유지
+# ----------------------------
+INTEGRATIONS_OAUTH = {
+    "facebook": {
+        "client_id": os.getenv("FB_CLIENT_ID", ""),
+        "auth_base": "https://www.facebook.com/v20.0/dialog/oauth",
+    },
+    "instagram": {
+        # Instagram Basic도 Facebook OAuth Dialog를 사용
+        "client_id": os.getenv("FB_APP_CLIENT_ID_FOR_IG", ""),
+        "auth_base": "https://www.facebook.com/v20.0/dialog/oauth",
+    },
+}

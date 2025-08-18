@@ -1,9 +1,12 @@
 # Python
 __pycache__/
 *.py[cod]
-*.sqlite3
 *.log
 .env
+
+# Databases
+db.sqlite3
+*.sqlite3*
 
 # Virtual environments
 venv/
@@ -17,5 +20,6 @@ ENV/
 .vscode/
 
 # Django
-db.sqlite3
 MoPT/
+
+# Local backups
