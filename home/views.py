@@ -1,100 +1,244 @@
 # home/views.py
 from __future__ import annotations
 
-import os
-from datetime import datetime, time
-from datetime import timezone as dt_timezone
-from typing import Any, Dict, List, Optional
+import json
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from django.conf import settings
+from django.db.models import Sum
 from django.http import JsonResponse
 from django.utils.dateformat import format as dj_format
-from django.utils.timezone import get_current_timezone
 from django.views import View
 
 from ai_insights.models import Insight
 from home.models import TrendKeyword
 
+KST = timezone(timedelta(hours=9))
+
+# reports_dailyperformance 테이블을 사용하는 모델을 가져옵니다.
+# 보통 reports 앱에 DailyPerformance(또는 DailyPerformanceReport) 같은 모델이 있을 겁니다.
+# 모델명이 다를 수 있으니 가장 가능성 높은 이름들을 순차 시도합니다.
+DailyPerfModel = None
+try:
+    from reports.models import (
+        DailyPerformance as _DPM,  # db_table='reports_dailyperformance'
+    )
+
+    DailyPerfModel = _DPM
+except Exception:
+    try:
+        from reports.models import DailyPerformanceReport as _DPR
+
+        DailyPerfModel = _DPR
+    except Exception:
+        DailyPerfModel = None
+
 
 class DashboardSummaryView(View):
     """
-    홈 대시보드 데이터 조회
-    [GET] /api/dashboard?region={string}&user_id={number}
+    홈 대시보드 데이터 조회 (레거시)
+    [GET] /api/dashboard?region={string}&from={yyyy-MM-dd}&to={yyyy-MM-dd}
 
-    응답 예시:
+    응답:
     {
-        "insights": [
-            {"id":"insight_001", "title":"...", "created_at":"2025-08-01"},
-            ...
-        ],
+        "insights": [...],
         "count": 3,
-        "trend_keywords": ["피크닉 도시락", "혼밥 맛집", "SNS 인기 메뉴", "여름 음료", "가성비 식당"],
-        "campaigns": [
-            {"id": "cmp_001", "name": "점심 세트 프로모션", "roas": 328.1},
-            {"id": "cmp_002", "name": "신메뉴 런칭 이벤트", "roas": 145.6}
-        ],
-        "weekly_sales": [
-            {"date": "2025-07-01", "sales": 120000},
-            ...
-        ],
-        "notice": {
-            "id": "ntc_20250801",
-            "title": "8월 정기 점검 안내",
-            "created_at": "2025-08-01T09:00:00+09:00"
-        }
+        "trend_keywords": [...],
+        "campaigns": [...],
+        "weekly_sales": [{"date":"YYYY-MM-DD","sales":12345}, ...],
+        "notice": {...}
     }
-
-    동작:
-    - AI 인사이트: 최근 3개 + 전체 개수
-    - 상권 트렌드 키워드: region 필수. 최신 생성순 5개 반환
-    - 캠페인 요약: 활성 캠페인 상위 1~2개(DB 직조회)  → 이미 구현되어 있다면 유지
-    - 주간 매출 동향: 리포트 API 내부 호출 (이미 구현되어 있다면 유지)
-    - 최신 공지사항: 공지 목록 API 내부 호출하여 1건만 요약해 붙임
     """
 
+    # ----------------------------
+    # 내부 공통: 자기 자신에게 API 호출
+    # ----------------------------
+    def _safe_get_json(
+        self, path: str, params: Optional[Dict[str, Any]] = None, timeout: float = 3.5
+    ) -> Tuple[bool, Any]:
+        base = "http://localhost:8000"  # 개발 로컬에서만 사용
+        url = f"{base}{path}"
+        try:
+            resp = requests.get(url, params=params or {}, timeout=timeout)
+            resp.raise_for_status()
+            return True, resp.json()
+        except requests.RequestException as e:
+            return False, f"request_error: {e}"
+        except json.JSONDecodeError:
+            return False, "json_decode_error"
+
+    # ----------------------------
+    # 캠페인 요약 (진행중 상위 1~2개) — 내부 API 사용
+    # ----------------------------
+    def _fetch_campaign_summary(self) -> List[Dict[str, Any]]:
+        ok, data = self._safe_get_json(
+            "/api/v1/campaigns", params={"status": "active", "limit": 2}
+        )
+        if not ok or not isinstance(data, dict):
+            return []
+
+        items = data.get("data") or []
+        summary: List[Dict[str, Any]] = []
+        for item in items[:2]:
+            cid = item.get("id")
+            name = item.get("name")
+            roas = item.get("roas")
+            try:
+                roas_num = round(float(roas), 1) if roas is not None else None
+            except (TypeError, ValueError):
+                roas_num = None
+
+            summary.append(
+                {
+                    "id": f"cmp_{cid}" if cid is not None else None,
+                    "name": name,
+                    "roas": roas_num,
+                }
+            )
+        return summary
+
+    # ----------------------------
+    # 기간 계산 (최근 7일 기본)
+    # ----------------------------
+    def _calc_from_to(self, req) -> Tuple[str, str]:
+        q_from = req.GET.get("from")
+        q_to = req.GET.get("to")
+        if q_from and q_to:
+            return q_from, q_to
+
+        today = datetime.now(KST).date()
+        start = today - timedelta(days=6)  # 총 7일
+        return (start.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d"))
+
+    # ----------------------------
+    # 주간 매출 동향 - 1) DB 직접 조회(reports_dailyperformance)
+    # ----------------------------
+    def _fetch_weekly_sales_db(self, req) -> List[Dict[str, Any]]:
+        if DailyPerfModel is None:
+            return []
+
+        start_str, end_str = self._calc_from_to(req)
+        try:
+            # 문자열 -> date
+            start_d = datetime.strptime(start_str, "%Y-%m-%d").date()
+            end_d = datetime.strptime(end_str, "%Y-%m-%d").date()
+        except ValueError:
+            # 잘못된 포맷이면 비움
+            return []
+
+        # 기간 내 모든 날짜 시퀀스 생성
+        days: List[date] = []
+        cur = start_d
+        while cur <= end_d:
+            days.append(cur)
+            cur += timedelta(days=1)
+
+        # DB에서 일자별 sales 합산
+        qs = (
+            DailyPerfModel.objects.filter(date__range=[start_d, end_d])
+            .values("date")
+            .annotate(sales_sum=Sum("sales"))
+        )
+        by_date = {row["date"]: int(row["sales_sum"] or 0) for row in qs}
+
+        # 누락된 날짜는 0으로 채움, 오름차순 정렬
+        rows: List[Dict[str, Any]] = [
+            {"date": d.strftime("%Y-%m-%d"), "sales": by_date.get(d, 0)} for d in days
+        ]
+        return rows[-7:]  # 혹시 길면 마지막 7개만
+
+    # ----------------------------
+    # 주간 매출 동향 - 2) 내부 API 폴백(/api/v1/reports)
+    # ----------------------------
+    def _fetch_weekly_sales_api(self, req) -> List[Dict[str, Any]]:
+        start_str, end_str = self._calc_from_to(req)
+        ok, data = self._safe_get_json(
+            "/api/v1/reports", params={"startDate": start_str, "endDate": end_str}
+        )
+        if not ok or not isinstance(data, dict):
+            return []
+
+        dates = data.get("dates") or []
+        metrics = data.get("metrics") or {}
+        sales = metrics.get("sales") or []
+
+        rows: List[Dict[str, Any]] = []
+        for d, s in zip(dates, sales):
+            try:
+                s_num = int(s)
+            except (TypeError, ValueError):
+                continue
+            rows.append({"date": d, "sales": s_num})
+        return rows[-7:]
+
+    # ----------------------------
+    # 최신 공지 1건
+    # ----------------------------
+    def _fetch_latest_notice(self, req) -> Dict[str, Any]:
+        user_id = getattr(getattr(req, "user", None), "id", None) or 1
+        ok, data = self._safe_get_json(
+            f"/api/v1/users/{user_id}/notices", params={"page": 1, "limit": 1}
+        )
+        if not ok or not isinstance(data, dict):
+            return {}
+
+        items = data.get("data") or []
+        if not items:
+            return {}
+
+        item = items[0]
+        nid = item.get("id")
+        title = item.get("title")
+        created_at = item.get("created_at")
+
+        created_iso = None
+        if isinstance(created_at, str):
+            if len(created_at) == 10:
+                created_iso = f"{created_at}T09:00:00+09:00"
+            else:
+                created_iso = created_at
+
+        return {"id": nid, "title": title, "created_at": created_iso}
+
+    # ----------------------------
+    # 메인 GET
+    # ----------------------------
     def get(self, request):
         region = request.GET.get("region")
         if not region:
             return JsonResponse({"error": "region parameter is required"}, status=400)
 
-        # (선택) 공지 조회용 사용자 id 확보: ?user_id= 우선, 없으면 로그인 사용자의 pk
-        user_id_param = request.GET.get("user_id")
-        user_id: Optional[int] = None
-        if user_id_param and user_id_param.isdigit():
-            user_id = int(user_id_param)
-        elif getattr(request, "user", None) and request.user.is_authenticated:
-            # 로그인 사용자가 있으면 그 pk 사용
-            user_id = getattr(request.user, "pk", None)
-
-        # 1) AI 인사이트 요약 (최근 3개)
+        # 1) AI 인사이트 요약
         insights_qs = Insight.objects.order_by("-created_at")[:3]
         insights = [
             {
                 "id": i.id,
                 "title": i.title,
-                # created_at을 YYYY-MM-DD로 변환
                 "created_at": dj_format(i.created_at, "Y-m-d"),
             }
             for i in insights_qs
         ]
         insight_count = Insight.objects.count()
 
-        # 2) 상권 트렌드 키워드 (지역별 최신 5개)
+        # 2) 상권 트렌드 키워드
         keywords = list(
             TrendKeyword.objects.filter(region=region)
             .order_by("-created_at")
             .values_list("keyword", flat=True)[:5]
         )
 
-        # 3) 캠페인 요약 (DB 직조회 방식 유지)
-        campaigns = self._get_active_campaign_summaries()
+        # 3) 진행 캠페인 요약
+        campaigns = self._fetch_campaign_summary()
 
-        # 4) 주간 매출 동향 (이미 구현했다면 호출 유지, 없으면 빈 리스트)
-        weekly_sales = self._get_weekly_sales_from_reports()
+        # 4) 주간 매출 동향 — DB 우선, 없으면 API 폴백
+        weekly_sales = self._fetch_weekly_sales_db(request)
+        if not weekly_sales:
+            weekly_sales = self._fetch_weekly_sales_api(request)
 
-        # 5) 최신 공지사항 1건 (내부 API 호출)
-        notice = self._get_latest_notice(user_id=user_id)
+        # 5) 최신 공지 1건
+        notice = self._fetch_latest_notice(request)
 
         data = {
             "insights": insights,
@@ -102,143 +246,6 @@ class DashboardSummaryView(View):
             "trend_keywords": keywords,
             "campaigns": campaigns,
             "weekly_sales": weekly_sales,
-            "notice": notice,  # 없으면 {}
+            "notice": notice,
         }
         return JsonResponse(data, status=200, json_dumps_params={"ensure_ascii": False})
-
-    # ---------------------------
-    # 내부 유틸 (캠페인/매출/공지)
-    # ---------------------------
-
-    def _get_active_campaign_summaries(self) -> List[Dict[str, Any]]:
-        """
-        활성 캠페인 1~2개를 DB에서 요약 조회.
-        - 기존 구현을 보존하기 위해 DB 직조회 방식을 유지합니다.
-        - 다른 팀의 스키마 변경에 대비해 최소 필드만 사용합니다.
-        """
-        try:
-            from campaigns.models import (  # 지연 import로 순환/마이그레이션 이슈 방지
-                Campaign,
-            )
-        except Exception:
-            return []
-
-        qs = (
-            Campaign.objects.filter(status="active")
-            .order_by("-roas")
-            .values("id", "name", "roas")[:2]
-        )
-        # id 유형이 정수라면 문자열로 캐스팅(응답 예시 형식 맞추기 위함)
-        return [
-            {
-                "id": f"cmp_{row['id']}" if isinstance(row["id"], int) else row["id"],
-                "name": row.get("name", ""),
-                "roas": float(row["roas"]) if row.get("roas") is not None else None,
-            }
-            for row in qs
-        ]
-
-    def _get_weekly_sales_from_reports(self) -> List[Dict[str, Any]]:
-        """
-        리포트 도메인의 기간별 KPI 조회 API를 내부 호출하여 최근 7일 매출만 꺼내 요약.
-        구현이 아직 없거나 실패하면 빈 리스트를 반환.
-        """
-        base = getattr(settings, "INTERNAL_API_BASE", None) or os.getenv(
-            "INTERNAL_API_BASE", "http://localhost:8000"
-        )
-        url = f"{base}/api/v1/reports"
-        # 최근 7일(오늘 제외/포함 등은 팀 규칙에 맞춰 조정)
-        tz = get_current_timezone()
-        today = datetime.now(tz=tz).date()
-        start = today.replace(day=today.day)  # placeholder: 실제는 today - 6일
-        # 간단히 today-6 ~ today로 계산
-        from datetime import timedelta
-
-        date_from = (today - timedelta(days=6)).strftime("%Y-%m-%d")
-        date_to = today.strftime("%Y-%m-%d")
-
-        try:
-            resp = requests.get(
-                url, params={"startDate": date_from, "endDate": date_to}, timeout=3.5
-            )
-            if resp.status_code != 200:
-                return []
-            payload = resp.json() or {}
-            dates = payload.get("dates") or []
-            sales = (payload.get("metrics") or {}).get("sales") or []
-            if not dates or not sales or len(dates) != len(sales):
-                return []
-            return [{"date": d, "sales": s} for d, s in zip(dates, sales)]
-        except Exception:
-            return []
-
-    def _get_latest_notice(self, user_id: Optional[int]) -> Dict[str, Any]:
-        """
-        공지 목록 API (GET /api/v1/users/{id}/notices)를 내부 호출하여
-        최신 공지 1건만 요약 형태로 반환.
-        - user_id가 없으면 조회하지 않고 {} 반환
-        - API가 YYYY-MM-DD만 줄 경우, 대시보드 요구사항에 맞춰 ISO8601(+09:00)로 변환
-        """
-        if not user_id:
-            return {}
-
-        base = getattr(settings, "INTERNAL_API_BASE", None) or os.getenv(
-            "INTERNAL_API_BASE", "http://localhost:8000"
-        )
-        url = f"{base}/api/v1/users/{user_id}/notices"
-        try:
-            resp = requests.get(url, params={"page": 1, "limit": 1}, timeout=3.5)
-            if resp.status_code != 200:
-                return {}
-            payload = resp.json() or {}
-            items = payload.get("data") or []
-            if not items:
-                return {}
-
-            raw = items[0]
-            created_at = raw.get("created_at", "")
-
-            # created_at이 'YYYY-MM-DD' 형태면 09:00 KST로 ISO8601 변환
-            iso_created = self._ensure_iso_kst(created_at)
-
-            return {
-                "id": raw.get("id", ""),
-                "title": raw.get("title", ""),
-                "created_at": iso_created,
-            }
-        except Exception:
-            return {}
-
-    @staticmethod
-    def _ensure_iso_kst(date_str: str) -> str:
-        """
-        'YYYY-MM-DD' 또는 이미 ISO8601 문자열을 받아 ISO8601(+09:00)로 반환.
-        - 'YYYY-MM-DD'면 09:00:00+09:00으로 맞춤(요구사항 예시와 동일)
-        - 이미 'T'가 포함돼 있으면 그대로 반환(단순 통과)
-        """
-        if not date_str:
-            return ""
-
-        if "T" in date_str:
-            # 이미 시간/타임존이 포함되어 있다고 가정
-            return date_str
-
-        # YYYY-MM-DD → 09:00:00(+09:00)로 변환
-        try:
-            d = datetime.strptime(date_str, "%Y-%m-%d").date()
-            # 한국시간(+09:00)
-            kst = dt_timezone(
-                dt_timezone.utc.utcoffset(None)
-            )  # placeholder, 아래로 교체
-        except ValueError:
-            return date_str  # 형식이 다르면 원본 리턴
-
-        # Django의 현재 타임존이 Asia/Seoul로 설정되어 있으니 그것을 사용
-        tz = get_current_timezone()
-        dt_obj = datetime.combine(d, time(9, 0))  # 09:00 고정
-        aware = (
-            tz.localize(dt_obj)
-            if hasattr(tz, "localize")
-            else dt_obj.replace(tzinfo=tz)
-        )
-        return aware.isoformat()

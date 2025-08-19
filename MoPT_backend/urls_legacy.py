@@ -9,8 +9,8 @@
 from django.urls import include, path
 
 urlpatterns = [
-    # AI 인사이트 (기존)
-    path("", include("ai_insights.urls")),
-    # 홈 대시보드 (기존)
-    path("", include("home.urls")),
+    # AI 인사이트는 /api/insights/ 로 시작
+    path("insights/", include("ai_insights.urls")),
+    # 홈 대시보드는 /api/dashboard/ 로 시작 (예시)
+    path("dashboard/", include("home.urls")),
 ]
