@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/4.0/ref/settings/
 import os
 from pathlib import Path
 
+import dj_database_url
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -23,10 +24,13 @@ load_dotenv(BASE_DIR / ".env")  # .env 로드 (한 번만)
 # See https://docs.djangoproject.com/en/4.0/howto/deployment/checklist/
 
 # 보안 키/디버그: main 쪽 정책 존중 → 환경변수 기반
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-secret")
-DEBUG = os.getenv("DEBUG", "0") == "1"
-
-ALLOWED_HOSTS = ["*"]
+SECRET_KEY = os.environ.get("SECRET_KEY")
+DEBUG = os.environ.get("DEBUG", "False") == "True"
+ALLOWED_HOSTS = [
+    ".koyeb.app",
+    "127.0.0.1",
+    "localhost",
+]
 
 # Application definition
 INSTALLED_APPS = [
@@ -48,6 +52,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     # main 쪽 유지: CSRF 활성화 (HEAD에서는 주석이었음)
@@ -80,10 +85,7 @@ WSGI_APPLICATION = "MoPT_backend.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/4.0/ref/settings/#databases
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+    "default": dj_database_url.config(default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
 }
 
 # Password validation
@@ -150,3 +152,8 @@ INTEGRATIONS_OAUTH = {
         "auth_base": "https://www.facebook.com/v20.0/dialog/oauth",
     },
 }
+
+# STATIC 관련 설정 (파일 맨 아래쪽에 추가)
+STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
