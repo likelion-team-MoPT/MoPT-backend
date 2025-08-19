@@ -11,12 +11,11 @@ from users.api import router as users_router
 
 api = NinjaAPI(title="MoPT API", version="1.0")
 
-api.add_router("/insights", insights_router)
-api.add_router("/campaigns", campaigns_router)
-api.add_router("/home", home_router)
-api.add_router("/reports", reports_router)
-api.add_router("/users", users_router)
-api.add_router("/integrations", integrations_router)
+api.add_router("/insights", insights_router, tags=["AI인사이트"])
+api.add_router("/campaigns", campaigns_router, tags=["캠페인"])
+api.add_router("/home", home_router, tags=["홈"])
+api.add_router("/reports", reports_router, tags=["리포트"])
+api.add_router("/users", users_router, tags=["내 정보"])
 
 urlpatterns = [
     path("admin/", admin.site.urls),
