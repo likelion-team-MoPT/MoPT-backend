@@ -14,7 +14,7 @@ pre-commit = ">=4.2.0,<5.0.0"
 requests = ">=2.32.3,<3.0.0"
 django-ninja-jwt = ">=5.3.7,<6.0.0"
 python-dotenv = "^1.1.1"
-
+djangorestframework = "^3.16.1"
 
 [tool.poetry.group.dev.dependencies]
 black = ">=25.1.0,<26.0.0"
