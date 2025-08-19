@@ -15,6 +15,10 @@ requests = ">=2.32.3,<3.0.0"
 django-ninja-jwt = ">=5.3.7,<6.0.0"
 python-dotenv = "^1.1.1"
 djangorestframework = "^3.16.1"
+gunicorn = "^23.0.0"
+dj-database-url = "^3.0.1"
+psycopg2-binary = "^2.9.10"
+whitenoise = "^6.9.0"
 
 [tool.poetry.group.dev.dependencies]
 black = ">=25.1.0,<26.0.0"
