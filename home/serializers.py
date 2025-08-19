@@ -33,3 +33,9 @@ class DashboardResponseSerializer(serializers.Serializer):
     insights = InsightSummaryItemSerializer(many=True)
     count = serializers.IntegerField()
     trend_keywords = serializers.ListField(child=serializers.CharField())
+
+
+class CampaignSummarySerializer(serializers.Serializer):
+    id = serializers.CharField()
+    name = serializers.CharField()
+    roas = serializers.FloatField()

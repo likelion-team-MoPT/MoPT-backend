@@ -1,9 +1,8 @@
 from django.urls import path
 
-from .views import InsightDetailView, InsightListView
+from .views import InsightDetailAPIView, InsightListView
 
 urlpatterns = [
-    path("", InsightListView.as_view(), name="insight-list"),
-    path("<str:id>", InsightDetailView.as_view(), name="insight-detail-by-path"),
-    path("detail", InsightDetailView.as_view(), name="insight-detail-by-query"),
+    path("insights", InsightListView.as_view(), name="insight-list"),
+    path("insights/<str:id>", InsightDetailAPIView.as_view(), name="insight-detail"),
 ]

@@ -1,14 +1,17 @@
-from rest_framework import generics, status
+from rest_framework import generics
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Insight
-from .serializers import InsightDetailSerializer
+from .serializers import (
+    InsightDetailSerializer,
+    NewStrategySerializer,
+    RecommendedStrategySerializer,
+)
 
 
 class CustomPagination(PageNumberPagination):
-    # ?limit=10 형태로 페이지 사이즈 조절
     page_size_query_param = "limit"
 
     def get_paginated_response(self, data):
@@ -25,36 +28,57 @@ class CustomPagination(PageNumberPagination):
 
 
 class InsightListView(APIView):
+    """
+    GET /api/insights
+      - 기본: 신규(new)와 기존(recommended) 둘 다 묶어서 내려줌
+        {
+          "new_strategies": [...],
+          "recommended_strategies": [...]
+        }
+
+    쿼리로 분리 조회도 지원:
+      - /api/insights?kind=new           → 신규만
+      - /api/insights?kind=recommended   → 기존만
+    """
+
     def get(self, request):
-        insights = Insight.objects.order_by("-created_at")
-        paginator = CustomPagination()
-        page = paginator.paginate_queryset(insights, request)
-        serializer = InsightDetailSerializer(page, many=True)
-        return paginator.get_paginated_response(serializer.data)
+        kind = (request.GET.get("kind") or "").lower()
 
-
-class InsightDetailView(APIView):
-    def get(self, request, id=None):
-        # 1) path로부터 id 받기 (urls에서 /insights/<str:id> 매핑 시 전달됨)
-        insight_id = id
-
-        # 2) path가 없으면 query에서 받기
-        if not insight_id:
-            insight_id = request.query_params.get("insight_id")
-
-        # 3) 최종적으로도 없으면 400
-        if not insight_id:
+        if kind == "new":
+            qs_new = Insight.objects.filter(is_new=True).order_by("-created_at")
             return Response(
-                {"error": "insight_id is required (path or query)"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"new_strategies": NewStrategySerializer(qs_new, many=True).data}
             )
 
-        # 4) 조회
-        try:
-            insight = Insight.objects.get(id=insight_id)
-        except Insight.DoesNotExist:
-            return Response({"error": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        if kind == "recommended":
+            qs_rec = Insight.objects.filter(is_new=False).order_by("-created_at")
+            return Response(
+                {
+                    "recommended_strategies": RecommendedStrategySerializer(
+                        qs_rec, many=True
+                    ).data
+                }
+            )
 
-        # 5) 직렬화 & 응답
-        serializer = InsightDetailSerializer(insight)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        # 기본: 둘 다
+        qs_new = Insight.objects.filter(is_new=True).order_by("-created_at")
+        qs_rec = Insight.objects.filter(is_new=False).order_by("-created_at")
+
+        data = {
+            "new_strategies": NewStrategySerializer(qs_new, many=True).data,
+            "recommended_strategies": RecommendedStrategySerializer(
+                qs_rec, many=True
+            ).data,
+        }
+        return Response(data)
+
+
+class InsightDetailAPIView(generics.RetrieveAPIView):
+    """
+    GET /api/insights/<id>
+    (하위 호환용 상세)
+    """
+
+    queryset = Insight.objects.all()
+    serializer_class = InsightDetailSerializer
+    lookup_field = "id"
