@@ -174,3 +174,8 @@ USE_X_FORWARDED_HOST = True
 CSRF_TRUSTED_ORIGINS = os.getenv(
     "DJANGO_CSRF_TRUSTED_ORIGINS", "https://*.koyeb.app"
 ).split(",")
+
+# DEBUG=False(배포)에서만 해시/압축된 정적 파일 스토리지 사용
+# 로컬 개발(DEBUG=True)에서는 생략해 개발 편의성 유지
+if not DEBUG:  # ✅ 조건부 적용으로 로컬 개발시 충돌/불편 최소화
+    STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
