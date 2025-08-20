@@ -9,7 +9,11 @@ from integrations.api import router as integrations_router
 from reports.api import router as reports_router
 from users.api import router as users_router
 
-api = NinjaAPI(title="MoPT API", version="1.0")
+api = NinjaAPI(
+    title="MoPT API",
+    version="1.0",
+    urls_namespace="api-v1",
+)
 
 api.add_router("/insights", insights_router, tags=["AI인사이트"])
 api.add_router("/campaigns", campaigns_router, tags=["캠페인"])

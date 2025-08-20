@@ -5,7 +5,7 @@ from django.db.models import Q
 from django.utils import timezone
 from ninja import Router, Schema
 
-from .models import HomeTrendKeyword  # app에서 실제 모델 경로에 맞춰 import
+from .models import TrendKeyword
 
 router = Router()
 
@@ -25,7 +25,7 @@ def dashboard(request, region: str, limit: Optional[int] = 5):
     GET /api/v1/home/dashboard?region=강남구&limit=5
     """
     qs = (
-        HomeTrendKeyword.objects.filter(region__icontains=region)
+        TrendKeyword.objects.filter(region__icontains=region)
         .order_by("-created_at")
         .values_list("keyword", flat=True)[: limit or 5]
     )
