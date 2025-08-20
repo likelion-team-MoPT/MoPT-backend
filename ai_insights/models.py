@@ -1,60 +1,75 @@
+# ai_insights/models.py
 from django.db import models
 
 
 class InsightTag(models.Model):
-    """
-    인사이트(기존 전략)용 태그.
-    - text: 화면에 보이는 태그 라벨 (예: '점심 매출 개선', 'SNS 반응 상승')
-    - type: 색상/의미 구분용 카테고리 ('growth' | 'retention' | 'expansion')
-    """
-
-    TAG_TYPES = (
-        ("growth", "Growth"),  # 노란색 - 성과/매출/신규
-        ("retention", "Retention"),  # 파란색 - 고객/브랜드/관계
-        ("expansion", "Expansion"),  # 빨간색 - 경쟁/위험/분석
+    TYPE_CHOICES = (
+        ("growth", "growth"),
+        ("retention", "retention"),
+        ("expansion", "expansion"),
     )
-
-    text = models.CharField(max_length=50)
-    type = models.CharField(max_length=10, choices=TAG_TYPES)
+    text = models.CharField(max_length=50)  # 예: '#프로모션'
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES)
 
     def __str__(self):
         return f"{self.text} ({self.type})"
 
 
 class Insight(models.Model):
-    """
-    AI 인사이트(전략) 공통 모델
-    - '신규 전략'과 '기존 전략'을 is_new 플래그로 구분
-    - 기존 전략에서 사용할 별도 icon, tags 필드 추가
-    """
-
     id = models.CharField(max_length=50, primary_key=True)  # 예: 'insight_001'
     title = models.CharField(max_length=255)
-
-    # 리스트 화면의 근거 요약 (신규 전략 카드에서 사용)
-    reason_icon = models.CharField(max_length=10, null=True, blank=True)  # 📈 등
+    # 예전 포맷 호환용 필드(리스트 응답에서 사용 가능)
+    reason_icon = models.CharField(max_length=10, null=True, blank=True)
     reason_text = models.CharField(max_length=255, null=True, blank=True)
-
     description = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
-    # 신규/기존 전략 구분
+    # 홈/인사이트 구분용
+    icon = models.CharField(max_length=32, default="ICON")
     is_new = models.BooleanField(default=False)
 
-    # 기존 전략 전용 필드 (디자인 요구사항)
-    icon = models.CharField(
-        max_length=10,
-        null=True,
-        blank=True,
-        help_text="기존 전략 카드에 노출할 아이콘(예: 📣, 🧩 등)",
-    )
-    tags = models.ManyToManyField(
-        InsightTag,
-        blank=True,
-        related_name="insights",
-        help_text="기존 전략에서 노출할 태그 리스트",
-    )
+    # 태그 (2번 포맷에서도 사용)
+    tags = models.ManyToManyField(InsightTag, related_name="insights", blank=True)
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    # 2번 상세 포맷 전용 필드
+    summary = models.TextField(null=True, blank=True)  # "상권 주변 ~ 제안합니다."
 
     def __str__(self):
         return f"[{self.id}] {self.title}"
+
+
+class InsightAnalysisItem(models.Model):
+    """
+    2번 포맷의 analysis.items[*]
+    """
+
+    insight = models.ForeignKey(
+        Insight, on_delete=models.CASCADE, related_name="analysis_items"
+    )
+    icon = models.CharField(max_length=10, default="")  # 예: '🧾'
+    title = models.CharField(max_length=100)  # 예: '매출 데이터'
+    description = models.TextField()  # 예: '최근 3주간 ...'
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return f"{self.insight_id} / {self.title}"
+
+
+class InsightRecommendation(models.Model):
+    """
+    2번 포맷의 recommendation 블록 (item은 단일)
+    """
+
+    insight = models.OneToOneField(
+        Insight, on_delete=models.CASCADE, related_name="recommendation"
+    )
+    title = models.CharField(max_length=100)  # 예: '추천 실행 계획'
+    item_icon = models.CharField(max_length=10, default="")  # 예: '🎯'
+    item_title = models.CharField(max_length=200)  # 예: 'SNS 기반 주말 ...'
+    item_description = models.TextField()  # 예: '주변 기숙사 반경 ...'
+
+    def __str__(self):
+        return f"{self.insight_id} / {self.title}"

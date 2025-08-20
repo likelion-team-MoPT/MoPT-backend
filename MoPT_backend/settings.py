@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     # 둘 다 살림: HEAD에서 추가된 DRF, main에서 추가된 integrations
     "rest_framework",
     "integrations",
+    "django_extensions",
 ]
 
 MIDDLEWARE = [
