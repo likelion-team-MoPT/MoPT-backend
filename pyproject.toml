@@ -22,12 +22,14 @@ django-ninja-jwt = ">=5.3.7,<6.0.0"
 djangorestframework = "^3.16.1"
 
 django-extensions = "==3.2.3"
+django-cors-headers = "^4.7.0"
 
 [tool.poetry.group.dev.dependencies]
 black = ">=25.1.0,<26.0.0"
 flake8 = ">=7.2.0,<8.0.0"
 pre-commit = ">=4.2.0,<5.0.0"
 isort = ">=5.13.2,<6.0.0"
+dj-database-url = "^3.0.1"
 
 [tool.isort]
 profile = "black"
