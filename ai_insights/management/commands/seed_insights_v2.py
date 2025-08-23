@@ -1,4 +1,3 @@
-# ai_insights/management/commands/seed_insight_v2.py
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
@@ -23,14 +22,15 @@ def upsert_insight_full(
     rec_item_desc: str,
     is_new=False,
 ):
+    # ✅ reason_icon/reason_text를 빈 문자열로 덮어쓰지 않도록 제외
     ins, _ = Insight.objects.update_or_create(
         id=iid,
         defaults=dict(
             title=title,
             summary=summary,
             is_new=is_new,
-            reason_icon="",
-            reason_text="",
+            # description은 상세 설명 필드(요약 summary와 별개)
+            # 필요 시 유지하거나 비워도 됨. 여기서는 기존 로직 유지.
             description="",
         ),
     )
@@ -128,7 +128,6 @@ class Command(BaseCommand):
                 rec_item_desc="메인+사이드+음료 세트 2종을 고정 노출하고 2주 AB 테스트.",
                 is_new=True,
             ),
-            # 아래 7개 이상 더 추가
             dict(
                 iid="insight_004",
                 title="재방문 고객 혜택 필요",
@@ -165,7 +164,7 @@ class Command(BaseCommand):
                 summary="여름 시즌 한정 음료 수요가 상승 중입니다.",
                 tags=[("#시즌한정", "growth")],
                 analysis_items=[
-                    ("🍹", "검색 트렌드", "‘여름 음료’ 키워드 전주 대비 +41%."),
+                    ("🍹", "검색 트렌드", "‘여름 음료’ 키워드 전주 대비 +41%.")
                 ],
                 rec_title="런칭 권장",
                 rec_item_icon="🧊",
@@ -193,9 +192,7 @@ class Command(BaseCommand):
                 title="경쟁사 가격 인하",
                 summary="주변 경쟁사의 가격 인하로 상대적 가격 저항 발생.",
                 tags=[("#경쟁분석", "expansion")],
-                analysis_items=[
-                    ("📉", "가격 동향", "경쟁사 평균가 -7%."),
-                ],
+                analysis_items=[("📉", "가격 동향", "경쟁사 평균가 -7%.")],
                 rec_title="가격 대응",
                 rec_item_icon="⚖️",
                 rec_item_title="가격 민감 상품 한정 할인",
@@ -222,9 +219,7 @@ class Command(BaseCommand):
                 title="테이크아웃 수요 증가",
                 summary="포장 비중이 커져 대응이 필요합니다.",
                 tags=[("#테이크아웃", "growth")],
-                analysis_items=[
-                    ("🥡", "포장율", "지난달 대비 +25%."),
-                ],
+                analysis_items=[("🥡", "포장율", "지난달 대비 +25%.")],
                 rec_title="포장 전용 메뉴",
                 rec_item_icon="🧾",
                 rec_item_title="포장 최적화 패키지",
