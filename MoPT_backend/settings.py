@@ -43,12 +43,12 @@ INSTALLED_APPS = [
     "ai_insights",
     "campaigns",
     "reports",
-    "users",
     # 둘 다 살림: HEAD에서 추가된 DRF, main에서 추가된 integrations
     "rest_framework",
     "integrations",
     "django_extensions",
     "corsheaders",
+    "users.apps.UsersConfig",
 ]
 
 MIDDLEWARE = [
@@ -62,8 +62,6 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
 ]
 ROOT_URLCONF = "MoPT_backend.urls"
 
@@ -180,7 +178,7 @@ USE_X_FORWARDED_HOST = True
 # CSRF: Koyeb 도메인(필수), 로컬 개발용은 필요시 추가
 CSRF_TRUSTED_ORIGINS = os.getenv(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
-    "https://*.koyeb.app,http://localhost:5173,http://127.0.0.1:5173",
+    "https://obliged-lebbie-mopt-885d1f85.koyeb.app,http://localhost:5173,http://127.0.0.1:5173",
 ).split(",")
 
 # DEBUG=False(배포)에서만 해시/압축된 정적 파일 스토리지 사용
