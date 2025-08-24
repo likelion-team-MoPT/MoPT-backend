@@ -67,6 +67,18 @@ class CampaignDetailOut(Schema):
         return None
 
     @staticmethod
+    def _sanitize(obj):
+        from decimal import Decimal
+
+        if isinstance(obj, Decimal):
+            return float(obj) if obj.is_finite() else None
+        if isinstance(obj, list):
+            return [CampaignDetailOut._sanitize(x) for x in obj]
+        if isinstance(obj, dict):
+            return {k: CampaignDetailOut._sanitize(v) for k, v in obj.items()}
+        return obj
+
+    @staticmethod
     def resolve_roas(obj: Campaign) -> Optional[float]:
         return CampaignDetailOut._to_float(getattr(obj, "roas", None))
 
@@ -92,11 +104,13 @@ class CampaignDetailOut(Schema):
 
     @staticmethod
     def resolve_performance(obj: Campaign) -> Dict[str, Any]:
-        return getattr(obj, "performance", None) or {}
+        raw = getattr(obj, "performance", None) or {}
+        return CampaignDetailOut._sanitize(raw)
 
     @staticmethod
     def resolve_creative(obj: Campaign) -> Dict[str, Any]:
-        return getattr(obj, "creative", None) or {}
+        raw = getattr(obj, "creative", None) or {}
+        return CampaignDetailOut._sanitize(raw)
 
     @staticmethod
     def resolve_daily_performance(obj: Campaign) -> List[Dict[str, Any]]:
@@ -106,14 +120,7 @@ class CampaignDetailOut(Schema):
         rows = list(
             rel.values("date", "impressions", "clicks", "spend", "sales", "roas")
         )
-        from decimal import Decimal
-
-        for r in rows:
-            for k in ("spend", "sales", "roas"):
-                v = r.get(k)
-                if isinstance(v, Decimal):
-                    r[k] = float(v) if v.is_finite() else None
-        return rows
+        return CampaignDetailOut._sanitize(rows)  # ← 모든 Decimal 일괄 변환
 
 
 class CampaignUpdateIn(Schema):
