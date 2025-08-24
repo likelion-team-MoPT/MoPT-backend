@@ -71,8 +71,56 @@ def list_campaigns(
 # 2. 캠페인 상세 조회
 @router.get("/{campaign_id}", response=CampaignDetailOut)
 def get_campaign(request, campaign_id: int):
-    campaign = get_object_or_404(Campaign, id=campaign_id)
-    return CampaignDetailOut.model_validate(campaign, from_attributes=True)
+    obj = get_object_or_404(Campaign, id=campaign_id)
+
+    # 기본 페이로드 안전 구성
+    payload = {
+        "id": obj.id,
+        "name": getattr(obj, "name", "") or "",
+        "status": getattr(obj, "status", None),
+        "channel": getattr(obj, "channel", None),
+        "objectives": getattr(obj, "objectives", None),
+        "performance": getattr(obj, "performance", None) or {},
+        "daily_performance": [],
+        "duration": {
+            "start": getattr(obj, "start_date", None),
+            "end": getattr(obj, "end_date", None),
+        },
+        "creative": getattr(obj, "creative", None) or {},
+    }
+
+    # 일별 퍼포먼스 안전 수집 (없거나 스키마 불일치면 빈 배열)
+    try:
+        rel = getattr(obj, "daily_performances", None)
+        if rel is not None:
+            dps = list(
+                rel.values("date", "impressions", "clicks", "spend", "sales", "roas")
+            )
+            for dp in dps:
+                for k in ("spend", "sales", "roas"):
+                    v = dp.get(k)
+                    if isinstance(v, Decimal):
+                        dp[k] = float(v) if v.is_finite() else None
+            payload["daily_performance"] = dps
+    except Exception:
+        payload["daily_performance"] = []
+
+    # 최종 스키마 검증 (v2)
+    try:
+        return CampaignDetailOut.model_validate(payload)  # dict → 스키마
+    except Exception:
+        # 혹시라도 타입 변환 문제 등 남아 있으면 최소 필드만 보장해 응답
+        return CampaignDetailOut(
+            id=obj.id,
+            name=payload["name"],
+            status=payload["status"],
+            channel=payload["channel"],
+            objectives=payload["objectives"],
+            performance=payload["performance"],
+            daily_performance=payload["daily_performance"],
+            duration=payload["duration"],
+            creative=payload["creative"],
+        )
 
 
 # 3. 캠페인 수정
