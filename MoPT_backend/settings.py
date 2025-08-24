@@ -52,9 +52,9 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     # main 쪽 유지: CSRF 활성화 (HEAD에서는 주석이었음)
@@ -121,6 +121,11 @@ AUTH_PASSWORD_VALIDATORS = [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "https://obliged-lebbie-mopt-885d1f85.koyeb.app",
+    "https://mopt-front.vercel.app",
+]
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*\.vercel\.app$",
 ]
 
 # Internationalization
@@ -178,7 +183,11 @@ USE_X_FORWARDED_HOST = True
 # CSRF: Koyeb 도메인(필수), 로컬 개발용은 필요시 추가
 CSRF_TRUSTED_ORIGINS = os.getenv(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
-    "https://obliged-lebbie-mopt-885d1f85.koyeb.app,http://localhost:5173,http://127.0.0.1:5173",
+    "https://obliged-lebbie-mopt-885d1f85.koyeb.app,"
+    "https://mopt-front.vercel.app,"
+    "https://*.vercel.app,"
+    "http://localhost:5173,"
+    "http://127.0.0.1:5173",
 ).split(",")
 
 # DEBUG=False(배포)에서만 해시/압축된 정적 파일 스토리지 사용
