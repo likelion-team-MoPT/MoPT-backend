@@ -138,10 +138,31 @@ class CampaignDetailOut(Schema):
         rel = getattr(obj, "daily_performances", None)
         if not rel:
             return []
-        rows = list(
-            rel.values("date", "impressions", "clicks", "spend", "sales", "roas")
-        )
-        return CampaignDetailOut._sanitize(rows)
+        try:
+            # 모델에 실제로 존재하는 필드만 교집합으로 추려서 values() 호출
+            model = getattr(rel, "model", None)
+            if not model:
+                return []
+            model_fields = {f.name for f in model._meta.get_fields()}
+            wanted = {"date", "impressions", "clicks", "spend", "sales", "roas"}
+            use_fields = list(wanted & model_fields)
+
+            if use_fields:
+                rows = list(rel.values(*use_fields))
+            else:
+                # 원하는 필드명이 하나도 없으면 전체 values() 후 sanitize
+                rows = list(rel.values())
+            rows = CampaignDetailOut._sanitize(rows)
+            # 프론트 안전용: 누락 키 기본값 채움
+            need = ("date", "impressions", "clicks", "spend", "sales", "roas")
+            for r in rows:
+                for k in need:
+                    r.setdefault(k, None)
+            return rows
+
+        except Exception:
+            # 어떤 이유로든 실패하면 상세 페이지가 죽지 않도록 빈 배열 반환
+            return []
 
 
 class CampaignUpdateIn(Schema):
