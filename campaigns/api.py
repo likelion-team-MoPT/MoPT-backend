@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Optional
 
 from django.shortcuts import get_object_or_404
@@ -20,23 +21,48 @@ router = Router()
 
 # 1. 캠페인 목록 조회
 @router.get("/", response=CampaignListOut)
-def list_campaigns(request, status: Optional[str] = None):
-    queryset = Campaign.objects.all()
-
-    # status 파라미터가 있고, 그 값이 'all'이 아닐 때만 필터링
+def list_campaigns(
+    request, status: Optional[str] = None, page: int = 1, limit: int = 10
+):
+    qs = Campaign.objects.all()
     if status and status.lower() != "all":
-        queryset = queryset.filter(status=status)
+        qs = qs.filter(status__iexact=status)
 
-    # 페이지네이션 로직 (간단하게 구현)
-    total = queryset.count()
-    limit = 10  # 한 페이지에 10개씩
-    page = 1  # 현재 1페이지
+    total = qs.count()
+    offset = max(page, 1) - 1
+    offset *= limit
 
-    # 스키마에 맞게 데이터 가공
-    items = [
-        CampaignListItemOut.model_validate(c, from_attributes=True) for c in queryset
-    ]
+    # 원시 값만 뽑아서 안전 변환(Decimal NaN/Inf, None 등 처리)
+    rows = list(
+        qs.order_by("-created_at").values(
+            "id", "name", "channel", "status", "roas", "spend", "start_date", "end_date"
+        )[offset : offset + limit]
+    )
 
+    norm = []
+    for r in rows:
+        roas = r.get("roas")
+        if isinstance(roas, Decimal):
+            roas = float(roas) if roas.is_finite() else None
+
+        spend = r.get("spend")
+        if isinstance(spend, Decimal):
+            spend = float(spend) if spend.is_finite() else None
+
+        norm.append(
+            {
+                "id": r["id"],
+                "name": r.get("name") or "",
+                "channel": r.get("channel"),
+                "status": r.get("status"),
+                "roas": roas,
+                "spend": spend,
+                "start_date": r.get("start_date"),
+                "end_date": r.get("end_date"),
+            }
+        )
+
+    items = [CampaignListItemOut(**n) for n in norm]
     return CampaignListOut(
         data=items, meta=PaginationMeta(page=page, limit=limit, total=total)
     )
