@@ -1,5 +1,5 @@
-# campaigns/schemas.py
-from datetime import date
+# campaigns/schemas.py (핵심 부분만)
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -7,34 +7,6 @@ from ninja import Schema
 from pydantic import ConfigDict, Field
 
 from .models import Campaign
-
-
-class MessageOut(Schema):
-    message: str
-
-
-class PaginationMeta(Schema):
-    page: int
-    limit: int
-    total: int
-
-
-class CampaignListItemOut(Schema):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    name: str
-    channel: Optional[str] = None
-    status: Optional[str] = None
-    roas: Optional[float] = None
-    spend: Optional[float] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-
-
-class CampaignListOut(Schema):
-    data: List[CampaignListItemOut]
-    meta: PaginationMeta
 
 
 class CampaignDetailOut(Schema):
@@ -45,7 +17,6 @@ class CampaignDetailOut(Schema):
     status: Optional[str] = None
     channel: Optional[str] = None
 
-    # 리스트와 호환되는 필드
     roas: Optional[float] = None
     spend: Optional[float] = None
     start_date: Optional[date] = None
@@ -57,7 +28,7 @@ class CampaignDetailOut(Schema):
     duration: Dict[str, Optional[date]] = Field(default_factory=dict)
     creative: Dict[str, Any] = Field(default_factory=dict)
 
-    # --- resolvers (Decimal -> float 보장) ---
+    # --- helpers ---
     @staticmethod
     def _to_float(v):
         if isinstance(v, Decimal):
@@ -68,15 +39,38 @@ class CampaignDetailOut(Schema):
 
     @staticmethod
     def _sanitize(obj):
-        from decimal import Decimal
-
         if isinstance(obj, Decimal):
             return float(obj) if obj.is_finite() else None
         if isinstance(obj, list):
             return [CampaignDetailOut._sanitize(x) for x in obj]
         if isinstance(obj, dict):
-            return {k: CampaignDetailOut._sanitize(v) for k, v in obj.items()}
+            # 키가 비문자(예: Decimal)면 JSON 직렬화를 위해 문자열화
+            return {
+                (str(k) if not isinstance(k, str) else k): CampaignDetailOut._sanitize(
+                    v
+                )
+                for k, v in obj.items()
+            }
         return obj
+
+    @staticmethod
+    def _to_date(v):
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, date):
+            return v
+        return None
+
+    # --- resolvers ---
+    @staticmethod
+    def resolve_status(obj: Campaign) -> Optional[str]:
+        v = getattr(obj, "status", None)
+        return v.value if hasattr(v, "value") else (str(v) if v is not None else None)
+
+    @staticmethod
+    def resolve_channel(obj: Campaign) -> Optional[str]:
+        v = getattr(obj, "channel", None)
+        return v.value if hasattr(v, "value") else (str(v) if v is not None else None)
 
     @staticmethod
     def resolve_roas(obj: Campaign) -> Optional[float]:
@@ -88,29 +82,26 @@ class CampaignDetailOut(Schema):
 
     @staticmethod
     def resolve_start_date(obj: Campaign) -> Optional[date]:
-        return getattr(obj, "start_date", None)
+        return CampaignDetailOut._to_date(getattr(obj, "start_date", None))
 
     @staticmethod
     def resolve_end_date(obj: Campaign) -> Optional[date]:
-        return getattr(obj, "end_date", None)
+        return CampaignDetailOut._to_date(getattr(obj, "end_date", None))
 
     @staticmethod
     def resolve_duration(obj: Campaign) -> Dict[str, Optional[date]]:
-        # 키를 start/end 대신 start_date/end_date로 통일
         return {
-            "start_date": getattr(obj, "start_date", None),
-            "end_date": getattr(obj, "end_date", None),
+            "start_date": CampaignDetailOut._to_date(getattr(obj, "start_date", None)),
+            "end_date": CampaignDetailOut._to_date(getattr(obj, "end_date", None)),
         }
 
     @staticmethod
     def resolve_performance(obj: Campaign) -> Dict[str, Any]:
-        raw = getattr(obj, "performance", None) or {}
-        return CampaignDetailOut._sanitize(raw)
+        return CampaignDetailOut._sanitize(getattr(obj, "performance", None) or {})
 
     @staticmethod
     def resolve_creative(obj: Campaign) -> Dict[str, Any]:
-        raw = getattr(obj, "creative", None) or {}
-        return CampaignDetailOut._sanitize(raw)
+        return CampaignDetailOut._sanitize(getattr(obj, "creative", None) or {})
 
     @staticmethod
     def resolve_daily_performance(obj: Campaign) -> List[Dict[str, Any]]:
@@ -120,24 +111,4 @@ class CampaignDetailOut(Schema):
         rows = list(
             rel.values("date", "impressions", "clicks", "spend", "sales", "roas")
         )
-        return CampaignDetailOut._sanitize(rows)  # ← 모든 Decimal 일괄 변환
-
-
-class CampaignUpdateIn(Schema):
-    name: Optional[str] = None
-    objectives: Optional[str] = None
-    creative: Optional[Dict[str, Any]] = None
-    target: Optional[Dict[str, Any]] = None
-    budget: Optional[Dict[str, Any]] = None
-    duration: Optional[Dict[str, Any]] = None
-
-
-class CampaignStatusOut(Schema):
-    id: int
-    name: str
-    status: str
-    message: str
-
-
-class CampaignStatusUpdateIn(Schema):
-    status: Campaign.CampaignStatus  # 또는: str
+        return CampaignDetailOut._sanitize(rows)
