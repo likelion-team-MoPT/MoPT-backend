@@ -33,7 +33,9 @@ def list_campaigns(request, status: Optional[str] = None):
     page = 1  # 현재 1페이지
 
     # 스키마에 맞게 데이터 가공
-    items = [CampaignListItemOut.from_orm(c) for c in queryset]
+    items = [
+        CampaignListItemOut.model_validate(c, from_attributes=True) for c in queryset
+    ]
 
     return CampaignListOut(
         data=items, meta=PaginationMeta(page=page, limit=limit, total=total)
@@ -44,7 +46,7 @@ def list_campaigns(request, status: Optional[str] = None):
 @router.get("/{campaign_id}", response=CampaignDetailOut)
 def get_campaign(request, campaign_id: int):
     campaign = get_object_or_404(Campaign, id=campaign_id)
-    return campaign
+    return CampaignDetailOut.model_validate(campaign, from_attributes=True)
 
 
 # 3. 캠페인 수정
@@ -70,11 +72,9 @@ def update_campaign(request, campaign_id: int, payload: CampaignUpdateIn):
 
 
 # 4. 캠페인 중단(상태 변경)
-@router.patch("/{id}/status", response=CampaignStatusOut)
-def update_campaign_status(request, id: int, payload: CampaignStatusUpdateIn):
-    campaign = get_object_or_404(Campaign, id=id)
-
-    # 스키마를 사용하므로 payload.status로 직접 안전하게 접근 가능
+@router.patch("/{campaign_id}/status", response=CampaignStatusOut)
+def update_campaign_status(request, campaign_id: int, payload: CampaignStatusUpdateIn):
+    campaign = get_object_or_404(Campaign, id=campaign_id)
     campaign.status = payload.status
     campaign.save()
 
