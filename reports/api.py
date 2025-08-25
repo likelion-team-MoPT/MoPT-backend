@@ -155,33 +155,42 @@ def get_channel_report(
         end_date,
     )
 
-    # aggregate per channel
+    # 1) 채널 라벨(소문자) + 원본 채널 둘 다 붙여서 집계
     agg = (
-        qs.values(label=Lower("channel"))  # ← schema의 label과 매칭
+        qs.annotate(label=Lower("channel"))
+        .values("label", "channel")
         .annotate(
             spend=Coalesce(Sum("spend"), 0),
             sales=Coalesce(Sum("sales"), 0),
             impressions=Coalesce(Sum("impressions"), 0),
             clicks=Coalesce(Sum("clicks"), 0),
         )
-        .annotate(
-            roas_pct=calculate_roas_from_fields("sales", "spend")  # 100 * sales / spend
-        )
         .order_by("-sales")
     )
 
-    # normalize types / rounding
-    return [
-        {
-            "label": r["label"],
-            "spend": int(r["spend"] or 0),
-            "sales": int(r["sales"] or 0),
-            "impressions": int(r["impressions"] or 0),
-            "clicks": int(r["clicks"] or 0),
-            "roas_pct": round(float(r["roas_pct"] or 0.0), 2),
-        }
-        for r in agg
-    ]
+    # 2) ROAS 계산 + 호환 키 동시 제공
+    rows = []
+    for r in agg:
+        spend = float(r.get("spend") or 0)
+        sales = float(r.get("sales") or 0)
+        roas_pct = 0.0 if spend <= 0 else 100.0 * sales / spend
+
+        rows.append(
+            {
+                # 새 포맷
+                "label": r.get("label") or (r.get("channel") or "").lower(),
+                "roas_pct": round(roas_pct, 2),
+                # 구 포맷(프론트 호환)
+                "channel": r.get("channel"),
+                "roas": round(roas_pct, 2),
+                # 공통 수치
+                "spend": int(spend),
+                "sales": int(sales),
+                "impressions": int(r.get("impressions") or 0),
+                "clicks": int(r.get("clicks") or 0),
+            }
+        )
+    return rows
 
 
 # 4) campaign performance
