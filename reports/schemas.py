@@ -27,10 +27,12 @@ class KpiReportOut(Schema):
 
 # 3. 채널별 성과 조회 스키마
 class ChannelReportOut(Schema):
-    channel: str
+    label: str  # channel name (lowercased)
     spend: int
     sales: int
-    roas: float
+    impressions: int
+    clicks: int
+    roas_pct: float  # 100 * sales / spend
 
 
 # 4. 캠페인별 성과 조회 스키마

@@ -1,8 +1,8 @@
 from datetime import date, timedelta
 from typing import List, Optional
 
-from django.db.models import Case, DecimalField, F, Sum, Value, When
-from django.db.models.functions import Cast, Coalesce
+from django.db.models import Case, ExpressionWrapper, F, FloatField, Sum, Value, When
+from django.db.models.functions import Coalesce, Lower
 from django.utils import timezone
 from ninja import Router
 
@@ -20,49 +20,62 @@ from .schemas import (
 router = Router()
 
 
-# --- 유틸리티 함수 ---
+# --- utils ---
 def parse_date_range(
     period: Optional[str] = None,
     startDate: Optional[date] = None,
     endDate: Optional[date] = None,
 ):
-    """상대적 기간(period) 또는 절대적 기간(startDate, endDate)을 파싱하여 날짜 범위를 반환"""
+    """Parse relative (period) or absolute (startDate/endDate) range."""
     if period:
+        p = (period or "").lower()
         today = timezone.now().date()
-        if period == "최근 7일":
-            start = today - timedelta(days=6)
-            end = today
-        elif period == "이번 달":
-            start = today.replace(day=1)
-            end = today
-        elif period == "지난 달":
+
+        if p in ("7d", "last_7d", "최근 7일"):
+            return today - timedelta(days=6), today
+        if p in ("30d", "last_30d"):
+            return today - timedelta(days=29), today
+        if p in ("this_month", "이번 달"):
+            return today.replace(day=1), today
+        if p in ("last_month", "지난 달"):
             last_month_end = today.replace(day=1) - timedelta(days=1)
-            start = last_month_end.replace(day=1)
-            end = last_month_end
-        else:  # 기본값은 최근 7일
-            start = today - timedelta(days=6)
-            end = today
-        return start, end
-    elif startDate and endDate:
+            return last_month_end.replace(day=1), last_month_end
+
+        # default: last 7 days
+        return today - timedelta(days=6), today
+
+    if startDate and endDate:
         return startDate, endDate
     return None, None
 
 
-def calculate_roas():
-    """ROAS 계산 (분모가 0일 경우 대비)"""
+def apply_overlap_filter(qs, start_date: Optional[date], end_date: Optional[date]):
+    """Apply date-overlap filter only when bounds are provided."""
+    if start_date and end_date:
+        return qs.filter(start_date__lte=end_date, end_date__gte=start_date)
+    if start_date:
+        return qs.filter(end_date__gte=start_date)
+    if end_date:
+        return qs.filter(start_date__lte=end_date)
+    return qs
+
+
+def calculate_roas_from_fields(sales_field: str = "sales", spend_field: str = "spend"):
+    """Return a float ROAS (%) expression using provided field names."""
     return Case(
-        When(spend=0, then=Value(0)),
-        default=(
-            Cast(F("sales"), DecimalField()) / Cast(F("spend"), DecimalField()) * 100
+        When(**{f"{spend_field}__lte": 0}, then=Value(0.0)),
+        default=ExpressionWrapper(
+            Value(100.0) * F(sales_field) / F(spend_field),
+            output_field=FloatField(),
         ),
-        output_field=DecimalField(),
+        output_field=FloatField(),
     )
 
 
-# --- API 엔드포인트 ---
+# --- endpoints ---
 
 
-# 1. 전체 리포트 조회
+# 1) total report
 @router.get("/", response=TotalReportOut)
 def get_total_report(
     request,
@@ -71,31 +84,29 @@ def get_total_report(
     endDate: Optional[date] = None,
 ):
     start_date, end_date = parse_date_range(period, startDate, endDate)
+    qs = apply_overlap_filter(Campaign.objects.all(), start_date, end_date)
 
-    # [수정] 겹치는 기간을 조회하도록 필터 로직 변경
-    report_data = Campaign.objects.filter(
-        start_date__lte=end_date, end_date__gte=start_date
-    ).aggregate(
+    report_data = qs.aggregate(
         total_spent=Coalesce(Sum("spend"), 0),
         total_sales=Coalesce(Sum("sales"), 0),
         total_clicks=Coalesce(Sum("clicks"), 0),
         total_impressions=Coalesce(Sum("impressions"), 0),
     )
 
-    overall_roas = 0
+    overall_roas = 0.0
     if report_data["total_spent"] > 0:
-        overall_roas = (report_data["total_sales"] / report_data["total_spent"]) * 100
+        overall_roas = (report_data["total_sales"] / report_data["total_spent"]) * 100.0
 
     return {
-        "total_spent": report_data["total_spent"],
-        "total_sales": report_data["total_sales"],
-        "total_clicks": report_data["total_clicks"],
-        "total_impressions": report_data["total_impressions"],
+        "total_spent": int(report_data["total_spent"]),
+        "total_sales": int(report_data["total_sales"]),
+        "total_clicks": int(report_data["total_clicks"]),
+        "total_impressions": int(report_data["total_impressions"]),
         "overall_roas": round(overall_roas, 2),
     }
 
 
-# 2. 기간별 KPI 조회
+# 2) KPI report
 @router.get("/kpi", response=KpiReportOut)
 def get_kpi_report(
     request,
@@ -104,24 +115,31 @@ def get_kpi_report(
     endDate: Optional[date] = None,
 ):
     start_date, end_date = parse_date_range(period, startDate, endDate)
+    qs = DailyPerformance.objects.all()
+    if start_date:
+        qs = qs.filter(date__gte=start_date)
+    if end_date:
+        qs = qs.filter(date__lte=end_date)
 
     daily_data = (
-        DailyPerformance.objects.filter(date__gte=start_date, date__lte=end_date)
-        .values("date")
-        .annotate(total_spend=Sum("spend"), total_sales=Sum("sales"))
+        qs.values("date")
+        .annotate(
+            total_spend=Coalesce(Sum("spend"), 0), total_sales=Coalesce(Sum("sales"), 0)
+        )
         .order_by("date")
     )
 
-    dates = [item["date"].strftime("%Y-%m-%d") for item in daily_data]
-    spend_metrics = [item["total_spend"] for item in daily_data]
-    sales_metrics = [item["total_sales"] for item in daily_data]
+    # return date objects (schema expects List[date])
+    dates = [item["date"] for item in daily_data]
+    spend_metrics = [int(item["total_spend"]) for item in daily_data]
+    sales_metrics = [int(item["total_sales"]) for item in daily_data]
 
     return KpiReportOut(
         dates=dates, metrics=KpiMetrics(spend=spend_metrics, sales=sales_metrics)
     )
 
 
-# 3. 채널별 성과 조회
+# 3) channel performance
 @router.get("/channel", response=List[ChannelReportOut])
 def get_channel_report(
     request,
@@ -131,17 +149,42 @@ def get_channel_report(
 ):
     start_date, end_date = parse_date_range(period, startDate, endDate)
 
-    # [수정] 겹치는 기간을 조회하도록 필터 로직 변경
-    report_data = (
-        Campaign.objects.filter(start_date__lte=end_date, end_date__gte=start_date)
-        .values("channel")
-        .annotate(spend=Sum("spend"), sales=Sum("sales"), roas=calculate_roas())
-        .order_by("-spend")
+    qs = apply_overlap_filter(
+        Campaign.objects.exclude(channel__isnull=True).exclude(channel__exact=""),
+        start_date,
+        end_date,
     )
-    return report_data
+
+    # aggregate per channel
+    agg = (
+        qs.values(label=Lower("channel"))  # ← schema의 label과 매칭
+        .annotate(
+            spend=Coalesce(Sum("spend"), 0),
+            sales=Coalesce(Sum("sales"), 0),
+            impressions=Coalesce(Sum("impressions"), 0),
+            clicks=Coalesce(Sum("clicks"), 0),
+        )
+        .annotate(
+            roas_pct=calculate_roas_from_fields("sales", "spend")  # 100 * sales / spend
+        )
+        .order_by("-sales")
+    )
+
+    # normalize types / rounding
+    return [
+        {
+            "label": r["label"],
+            "spend": int(r["spend"] or 0),
+            "sales": int(r["sales"] or 0),
+            "impressions": int(r["impressions"] or 0),
+            "clicks": int(r["clicks"] or 0),
+            "roas_pct": round(float(r["roas_pct"] or 0.0), 2),
+        }
+        for r in agg
+    ]
 
 
-# 4. 캠페인별 성과 조회
+# 4) campaign performance
 @router.get("/campaign", response=List[CampaignReportOut])
 def get_campaign_report(
     request,
@@ -152,19 +195,17 @@ def get_campaign_report(
     limit: int = 5,
 ):
     start_date, end_date = parse_date_range(period, startDate, endDate)
+    qs = apply_overlap_filter(Campaign.objects.all(), start_date, end_date)
 
-    valid_sort_fields = ["roas", "-roas", "spend", "-spend", "sales", "-sales"]
+    valid_sort_fields = {"roas", "-roas", "spend", "-spend", "sales", "-sales"}
     sort_key = sort.replace("roas", "calculated_roas")
-    if sort_key not in [
+    if sort_key not in {
         s.replace("roas", "calculated_roas") for s in valid_sort_fields
-    ]:
+    }:
         sort_key = "-calculated_roas"
 
-    # [수정] 겹치는 기간을 조회하도록 필터 로직 변경
-    report_data = (
-        Campaign.objects.filter(start_date__lte=end_date, end_date__gte=start_date)
-        .annotate(calculated_roas=calculate_roas())
-        .order_by(sort_key)[:limit]
-    )
+    qs = qs.annotate(
+        calculated_roas=calculate_roas_from_fields("sales", "spend")
+    ).order_by(sort_key)[: max(1, int(limit))]
 
-    return list(report_data)
+    return list(qs)
